@@ -1,0 +1,364 @@
+import Peer, { type DataConnection, type MediaConnection } from "peerjs";
+import {
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_CHECK_MS,
+  RECONNECT_THRESHOLD_MS,
+  WARN_THRESHOLD_MS,
+  CRITICAL_THRESHOLD_MS,
+  LOW_BITRATE_THRESHOLD,
+  LOW_BITRATE_DURATION_MS,
+  type ConnectionState,
+  type HeartbeatMsg,
+} from "./types";
+import { startSoftChime, stopSoftChime, startAlarm, stopAlarm } from "./audioAlerts";
+
+const PEER_PREFIX = "babymon-v1-";
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
+
+export const peerIdFromPin = (pin: string) => PEER_PREFIX + pin;
+
+export interface SessionEvents {
+  onState: (s: ConnectionState) => void;
+  onRemoteStream?: (s: MediaStream | null) => void;
+  onLowBandwidth?: (low: boolean, droppedAt: Date | null) => void;
+  onError?: (err: string) => void;
+  onSessionEnded?: () => void;
+}
+
+export class BabySession {
+  private peer: Peer | null = null;
+  private dataConn: DataConnection | null = null;
+  private mediaCall: MediaConnection | null = null;
+  private heartbeatTimer: number | null = null;
+  private endedExternally = false;
+
+  constructor(
+    public pin: string,
+    private localStream: MediaStream,
+    private events: SessionEvents,
+  ) {}
+
+  start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.events.onState("PAIRING");
+      const peer = new Peer(peerIdFromPin(this.pin), {
+        debug: 1,
+        config: { iceServers: ICE_SERVERS },
+      });
+      this.peer = peer;
+
+      peer.on("open", () => resolve());
+      peer.on("error", (err) => {
+        const msg = (err as { type?: string; message?: string }).message ?? "Peer error";
+        const type = (err as { type?: string }).type;
+        if (type === "unavailable-id") {
+          this.events.onError?.("That PIN is already in use. Please end the other session and try a new PIN.");
+          reject(new Error("unavailable-id"));
+        } else if (type === "network" || type === "server-error" || type === "socket-error") {
+          this.events.onError?.("Cannot reach pairing service. Check your internet.");
+        } else {
+          this.events.onError?.(msg);
+        }
+      });
+
+      peer.on("connection", (conn) => {
+        // Replace any prior connection
+        this.dataConn?.close();
+        this.dataConn = conn;
+        conn.on("open", () => {
+          this.events.onState("CONNECTING");
+        });
+        conn.on("data", (raw) => {
+          const msg = raw as HeartbeatMsg;
+          if (msg.type === "ping") {
+            conn.send({ type: "pong", t: Date.now() } satisfies HeartbeatMsg);
+          } else if (msg.type === "end") {
+            this.endedExternally = true;
+            this.events.onSessionEnded?.();
+          }
+        });
+        conn.on("close", () => {
+          if (this.dataConn === conn) this.dataConn = null;
+        });
+      });
+
+      peer.on("call", (call) => {
+        // Parent should NOT call us; Baby calls Parent. But accept defensively.
+        call.answer();
+      });
+
+      // When data conn opens, place the media call to that parent peer.
+      peer.on("connection", (conn) => {
+        conn.on("open", () => {
+          // Tear down any previous call
+          this.mediaCall?.close();
+          const call = peer.call(conn.peer, this.localStream);
+          this.mediaCall = call;
+          call.on("close", () => {
+            if (this.mediaCall === call) this.mediaCall = null;
+          });
+          this.events.onState("CONNECTED");
+          this.startHeartbeat();
+        });
+      });
+    });
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = window.setInterval(() => {
+      if (this.dataConn?.open) {
+        try {
+          this.dataConn.send({ type: "ping", t: Date.now() } satisfies HeartbeatMsg);
+        } catch {
+          // ignore
+        }
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  end() {
+    this.stopHeartbeat();
+    try {
+      this.dataConn?.send({ type: "end" } satisfies HeartbeatMsg);
+    } catch {
+      // ignore
+    }
+    this.dataConn?.close();
+    this.mediaCall?.close();
+    this.peer?.destroy();
+    this.localStream.getTracks().forEach((t) => t.stop());
+    this.events.onState("ENDED");
+  }
+
+  get wasEndedRemotely() {
+    return this.endedExternally;
+  }
+}
+
+export class ParentSession {
+  private peer: Peer | null = null;
+  private dataConn: DataConnection | null = null;
+  private mediaCall: MediaConnection | null = null;
+  private remoteStream: MediaStream | null = null;
+  private lastSeen = 0;
+  private watchdogTimer: number | null = null;
+  private degradationFirstAt = 0;
+  private degradationTimer: number | null = null;
+  private prevWarn = false;
+  private prevCritical = false;
+  private statsTimer: number | null = null;
+  private prevBytes = 0;
+  private prevStatsTime = 0;
+  private lowSince = 0;
+  private isLowBw = false;
+
+  constructor(private events: SessionEvents) {}
+
+  async connect(pin: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.events.onState("CONNECTING");
+      const peer = new Peer({
+        debug: 1,
+        config: { iceServers: ICE_SERVERS },
+      });
+      this.peer = peer;
+
+      const timeout = window.setTimeout(() => {
+        this.events.onError?.("Could not reach the Baby Device. Check the PIN and that the other device is on Pairing.");
+        reject(new Error("timeout"));
+        peer.destroy();
+      }, 12000);
+
+      peer.on("error", (err) => {
+        const type = (err as { type?: string }).type;
+        if (type === "peer-unavailable") {
+          window.clearTimeout(timeout);
+          this.events.onError?.("No Baby Device found with that PIN.");
+          reject(new Error("peer-unavailable"));
+        } else if (type === "network" || type === "server-error" || type === "socket-error") {
+          this.events.onError?.("Cannot reach pairing service. Check your internet.");
+        }
+      });
+
+      peer.on("open", () => {
+        const conn = peer.connect(peerIdFromPin(pin), { reliable: true });
+        this.dataConn = conn;
+
+        conn.on("open", () => {
+          window.clearTimeout(timeout);
+          this.lastSeen = Date.now();
+          this.startWatchdog();
+          resolve();
+        });
+
+        conn.on("data", (raw) => {
+          const msg = raw as HeartbeatMsg;
+          if (msg.type === "pong" || msg.type === "ping") {
+            this.lastSeen = Date.now();
+          } else if (msg.type === "end") {
+            this.events.onSessionEnded?.();
+          }
+          // Send our own ping back if we received a ping (kept symmetric)
+          if (msg.type === "ping" && conn.open) {
+            try {
+              conn.send({ type: "pong", t: Date.now() } satisfies HeartbeatMsg);
+            } catch {
+              // ignore
+            }
+          }
+        });
+
+        // Also send pings ourselves so Baby sees us alive.
+        const ourPing = window.setInterval(() => {
+          if (conn.open) {
+            try {
+              conn.send({ type: "ping", t: Date.now() } satisfies HeartbeatMsg);
+            } catch {
+              // ignore
+            }
+          }
+        }, HEARTBEAT_INTERVAL_MS);
+        conn.on("close", () => window.clearInterval(ourPing));
+      });
+
+      peer.on("call", (call) => {
+        call.answer();
+        this.mediaCall = call;
+        call.on("stream", (stream) => {
+          this.remoteStream = stream;
+          this.events.onRemoteStream?.(stream);
+          this.events.onState("CONNECTED");
+          this.startStatsPolling(call);
+        });
+        call.on("close", () => {
+          if (this.mediaCall === call) this.mediaCall = null;
+        });
+      });
+    });
+  }
+
+  private startWatchdog() {
+    this.stopWatchdog();
+    this.watchdogTimer = window.setInterval(() => {
+      const since = Date.now() - this.lastSeen;
+      if (since < RECONNECT_THRESHOLD_MS) {
+        // Healthy
+        if (this.degradationFirstAt !== 0) {
+          this.degradationFirstAt = 0;
+          if (this.prevWarn) {
+            stopSoftChime();
+            this.prevWarn = false;
+          }
+          if (this.prevCritical) {
+            stopAlarm();
+            this.prevCritical = false;
+          }
+          if (this.remoteStream) {
+            this.events.onState("CONNECTED");
+          }
+        }
+      } else {
+        if (this.degradationFirstAt === 0) {
+          this.degradationFirstAt = Date.now();
+        }
+        const dur = Date.now() - this.degradationFirstAt;
+        if (dur >= CRITICAL_THRESHOLD_MS) {
+          if (!this.prevCritical) {
+            this.prevCritical = true;
+            startAlarm();
+          }
+          this.events.onState("CONNECTION_LOST");
+        } else if (dur >= WARN_THRESHOLD_MS) {
+          if (!this.prevWarn) {
+            this.prevWarn = true;
+            startSoftChime();
+          }
+          this.events.onState("RECONNECTING_WARN");
+        } else {
+          this.events.onState("RECONNECTING_SILENT");
+        }
+      }
+    }, HEARTBEAT_CHECK_MS);
+  }
+
+  private stopWatchdog() {
+    if (this.watchdogTimer !== null) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+  }
+
+  private startStatsPolling(call: MediaConnection) {
+    this.stopStatsPolling();
+    this.statsTimer = window.setInterval(async () => {
+      const pc: RTCPeerConnection | undefined = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+      if (!pc) return;
+      try {
+        const stats = await pc.getStats();
+        let inboundBytes = 0;
+        stats.forEach((report) => {
+          if (report.type === "inbound-rtp" && (report as { kind?: string }).kind === "video") {
+            inboundBytes += (report as { bytesReceived?: number }).bytesReceived ?? 0;
+          }
+        });
+        const now = Date.now();
+        if (this.prevStatsTime !== 0) {
+          const elapsed = (now - this.prevStatsTime) / 1000;
+          const bps = ((inboundBytes - this.prevBytes) * 8) / Math.max(0.1, elapsed);
+          if (bps < LOW_BITRATE_THRESHOLD) {
+            if (this.lowSince === 0) this.lowSince = now;
+            if (now - this.lowSince > LOW_BITRATE_DURATION_MS && !this.isLowBw) {
+              this.isLowBw = true;
+              this.events.onLowBandwidth?.(true, new Date());
+            }
+          } else {
+            this.lowSince = 0;
+            if (this.isLowBw) {
+              this.isLowBw = false;
+              this.events.onLowBandwidth?.(false, null);
+            }
+          }
+        }
+        this.prevBytes = inboundBytes;
+        this.prevStatsTime = now;
+      } catch {
+        // ignore
+      }
+    }, 2000);
+  }
+
+  private stopStatsPolling() {
+    if (this.statsTimer !== null) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = null;
+    }
+  }
+
+  end() {
+    this.stopWatchdog();
+    this.stopStatsPolling();
+    stopSoftChime();
+    stopAlarm();
+    try {
+      this.dataConn?.send({ type: "end" } satisfies HeartbeatMsg);
+    } catch {
+      // ignore
+    }
+    this.dataConn?.close();
+    this.mediaCall?.close();
+    this.remoteStream?.getTracks().forEach((t) => t.stop());
+    this.peer?.destroy();
+    this.events.onState("ENDED");
+  }
+}
