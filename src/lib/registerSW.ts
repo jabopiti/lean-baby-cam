@@ -21,8 +21,8 @@ export function registerServiceWorker() {
   const isPreviewHost =
     host.includes("id-preview--") ||
     host.includes("lovableproject.com") ||
-    host.includes("lovable.app") === false && host.includes("lovable") ||
-    host === "localhost";
+    host === "localhost" ||
+    host === "127.0.0.1";
 
   if (isInIframe || isPreviewHost) {
     navigator.serviceWorker.getRegistrations().then((regs) => {
@@ -32,9 +32,10 @@ export function registerServiceWorker() {
   }
 
   // Production registration via vite-plugin-pwa virtual module
+  // @ts-expect-error virtual module provided at build time by vite-plugin-pwa
   import("virtual:pwa-register")
-    .then(({ registerSW }) => {
-      registerSW({ immediate: true });
+    .then((mod: { registerSW: (opts?: { immediate?: boolean }) => void }) => {
+      mod.registerSW({ immediate: true });
     })
     .catch(() => {
       /* virtual module unavailable in dev */
