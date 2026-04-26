@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ParentSession } from "@/lib/peerManager";
 import { parsePairingPayload, normalizeSecret } from "@/lib/pairing";
 import { primeAudio, stopAlarm, stopSoftChime } from "@/lib/audioAlerts";
-import type { ConnectionState } from "@/lib/types";
+import type { ConnectionState, StatsSnapshot } from "@/lib/types";
 import { useWakeLock } from "@/hooks/useWakeLock";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { AudioMeter } from "@/components/monitor/AudioMeter";
@@ -16,6 +16,7 @@ import { Waveform } from "@/components/monitor/Waveform";
 import { StatusPill } from "@/components/monitor/StatusPill";
 import { SessionTimer } from "@/components/monitor/SessionTimer";
 import { EndSessionDialog } from "@/components/monitor/EndSessionDialog";
+import { DiagnosticsOverlay } from "@/components/monitor/DiagnosticsOverlay";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/parent")({
@@ -46,6 +47,8 @@ function ParentPage() {
   const [endOpen, setEndOpen] = useState(false);
   const [lowBw, setLowBw] = useState<{ low: boolean; at: Date | null }>({ low: false, at: null });
   const [showRestored, setShowRestored] = useState(false);
+  const [stats, setStats] = useState<StatsSnapshot | null>(null);
+  const [showDiag, setShowDiag] = useState(false);
 
   const sessionRef = useRef<ParentSession | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +89,7 @@ function ParentPage() {
           }
         },
         onLowBandwidth: (low, at) => setLowBw({ low, at }),
+        onStats: (s) => setStats(s),
         onWarning: (msg) => {
           console.warn("[parent]", msg);
           toast.warning("Relay unavailable — cross-network sessions may not connect.");
@@ -339,7 +343,7 @@ function ParentPage() {
         <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent">
           <StatusPill state={state} />
           <div className="flex items-center gap-3 text-white/90">
-            <SessionTimer startedAt={startedAt} />
+            <SessionTimer startedAt={startedAt} onLongPress={() => setShowDiag((s) => !s)} />
             <button
               onClick={() => setMuted((m) => !m)}
               className="p-2 rounded-full bg-white/10 hover:bg-white/20"
@@ -396,6 +400,9 @@ function ParentPage() {
       <EndSessionDialog open={endOpen} onOpenChange={setEndOpen} onConfirm={confirmEnd} />
       {/* Hidden persistent audio element — keeps audio alive when tab backgrounds. */}
       <audio ref={audioRef} autoPlay playsInline className="hidden" />
+      {showDiag && (
+        <DiagnosticsOverlay stats={stats} state={state} onClose={() => setShowDiag(false)} />
+      )}
     </div>
   );
 }
