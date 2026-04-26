@@ -221,6 +221,10 @@ function BabyPage() {
               <div className="mt-1 font-mono text-4xl font-bold text-primary tracking-[0.3em]">
                 {pin.match(/.{1,3}/g)?.join(" ")}
               </div>
+              <div className="mt-4 text-xs uppercase tracking-widest text-muted-foreground">Code</div>
+              <div className="mt-1 font-mono text-2xl font-bold text-foreground tracking-[0.4em]">
+                {secret}
+              </div>
             </div>
           </div>
           <p className="mt-6 text-xs text-muted-foreground">
