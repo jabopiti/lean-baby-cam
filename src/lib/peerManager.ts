@@ -12,15 +12,71 @@ import {
 } from "./types";
 import { startSoftChime, stopSoftChime, startAlarm, stopAlarm } from "./audioAlerts";
 import { timingSafeEqual } from "./pairing";
+import { getIceServers } from "./turnCredentials.functions";
 
 const PEER_PREFIX = "babymon-v1-";
 const AUTH_TIMEOUT_MS = 3000;
-const ICE_SERVERS: RTCIceServer[] = [
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
 export const peerIdFromPin = (pin: string) => PEER_PREFIX + pin;
+
+/**
+ * Fetch fresh ICE servers (Cloudflare TURN + STUN). Returns null on hard
+ * failure so callers can decide to surface a warning. Always returns *some*
+ * usable list — at minimum public STUN — so same-network sessions still work.
+ */
+async function fetchIceServers(): Promise<{ list: RTCIceServer[]; warning: string | null }> {
+  try {
+    const result = await getIceServers();
+    if (result.source === "fallback") {
+      return {
+        list: result.iceServers,
+        warning: result.error ?? "Relay unavailable — cross-network may not work.",
+      };
+    }
+    return { list: result.iceServers, warning: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      list: FALLBACK_ICE_SERVERS,
+      warning: `Relay fetch failed: ${msg}`,
+    };
+  }
+}
+
+/** Dev-only diagnostic: log which kind of ICE candidate pair was selected. */
+function logSelectedCandidatePair(pc: RTCPeerConnection, label: string): void {
+  if (!import.meta.env.DEV) return;
+  void pc.getStats().then((stats) => {
+    let pair: { localType?: string; remoteType?: string } | null = null;
+    const candidates = new Map<string, { candidateType?: string }>();
+    stats.forEach((report) => {
+      if (report.type === "local-candidate" || report.type === "remote-candidate") {
+        candidates.set(report.id, { candidateType: (report as { candidateType?: string }).candidateType });
+      }
+    });
+    stats.forEach((report) => {
+      if (
+        report.type === "candidate-pair" &&
+        (report as { state?: string }).state === "succeeded" &&
+        (report as { nominated?: boolean }).nominated
+      ) {
+        const r = report as { localCandidateId?: string; remoteCandidateId?: string };
+        pair = {
+          localType: r.localCandidateId ? candidates.get(r.localCandidateId)?.candidateType : undefined,
+          remoteType: r.remoteCandidateId ? candidates.get(r.remoteCandidateId)?.candidateType : undefined,
+        };
+      }
+    });
+    if (pair) {
+      // eslint-disable-next-line no-console
+      console.log(`[ICE ${label}] selected pair: local=${pair.localType} remote=${pair.remoteType}`);
+    }
+  });
+}
 
 export interface SessionEvents {
   onState: (s: ConnectionState) => void;
@@ -28,6 +84,7 @@ export interface SessionEvents {
   onLowBandwidth?: (low: boolean, droppedAt: Date | null) => void;
   onError?: (err: string) => void;
   onSessionEnded?: () => void;
+  onWarning?: (msg: string) => void;
 }
 
 export class BabySession {
