@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ParentSession } from "@/lib/peerManager";
+import { parsePairingPayload, normalizeSecret } from "@/lib/pairing";
 import { primeAudio, stopAlarm, stopSoftChime } from "@/lib/audioAlerts";
 import type { ConnectionState } from "@/lib/types";
 import { useWakeLock } from "@/hooks/useWakeLock";
@@ -32,6 +33,7 @@ function ParentPage() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>("pair");
   const [pinDigits, setPinDigits] = useState("");
+  const [codeChars, setCodeChars] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [strikes, setStrikes] = useState(0);
   const [lockedUntil, setLockedUntil] = useState<number>(0);
@@ -67,7 +69,7 @@ function ParentPage() {
   }, [state]);
 
   const startSession = useCallback(
-    async (pin: string) => {
+    async (pin: string, secret: string) => {
       setErrorMsg(null);
       primeAudio();
       setPhase("connecting");
@@ -95,7 +97,7 @@ function ParentPage() {
       });
       sessionRef.current = session;
       try {
-        await session.connect(pin);
+        await session.connect(pin, secret);
       } catch {
         // surfaced via onError
       }
@@ -139,10 +141,10 @@ function ParentPage() {
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 220, height: 220 } },
         (decoded) => {
-          const pin = decoded.trim().replace(/\D/g, "").slice(0, 6);
-          if (/^\d{6}$/.test(pin)) {
+          const { pin, secret } = parsePairingPayload(decoded);
+          if (/^\d{6}$/.test(pin) && secret && secret.length >= 4) {
             void stopQr();
-            void startSession(pin);
+            void startSession(pin, secret);
           }
         },
         () => {
@@ -249,11 +251,25 @@ function ParentPage() {
                   className="mt-2 text-center text-3xl font-mono tracking-[0.4em] h-16"
                   disabled={lockedSec > 0}
                 />
+                <label className="text-xs uppercase tracking-widest text-muted-foreground mt-4 block">Code</label>
+                <Input
+                  inputMode="text"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={4}
+                  placeholder="ABCD"
+                  value={codeChars}
+                  onChange={(e) => setCodeChars(normalizeSecret(e.target.value))}
+                  className="mt-2 text-center text-2xl font-mono tracking-[0.4em] h-14 uppercase"
+                  disabled={lockedSec > 0}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">Shown beneath the PIN on the Baby Device.</p>
                 <Button
                   size="lg"
                   className="mt-4 w-full"
-                  disabled={pinDigits.length !== 6 || lockedSec > 0}
-                  onClick={() => startSession(pinDigits)}
+                  disabled={pinDigits.length !== 6 || codeChars.length !== 4 || lockedSec > 0}
+                  onClick={() => startSession(pinDigits, codeChars)}
                 >
                   Connect
                 </Button>
