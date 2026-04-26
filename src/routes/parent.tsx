@@ -55,6 +55,7 @@ function ParentPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const qrRef = useRef<Html5Qrcode | null>(null);
   const prevStateRef = useRef<ConnectionState>("IDLE");
+  const lastAttemptRef = useRef<{ pin: string; secret: string } | null>(null);
 
   const audioLevel = useAudioLevel(remoteStream);
   useWakeLock(phase !== "pair");
@@ -76,6 +77,7 @@ function ParentPage() {
   const startSession = useCallback(
     async (pin: string, secret: string) => {
       setErrorMsg(null);
+      lastAttemptRef.current = { pin, secret };
       primeAudio();
       setPhase("connecting");
       const session = new ParentSession({
@@ -211,6 +213,10 @@ function ParentPage() {
 
   if (phase === "pair") {
     const lockedSec = lockedUntil ? Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000)) : 0;
+    const isRetryable =
+      !!errorMsg &&
+      (errorMsg.includes("Cannot reach pairing service") ||
+        errorMsg.includes("Could not reach the Baby Device"));
     return (
       <div className="min-h-screen flex items-center justify-center px-6 py-10" style={{ background: "var(--gradient-night)" }}>
         <div className="w-full max-w-md">
@@ -223,8 +229,21 @@ function ParentPage() {
           </p>
 
           {errorMsg && (
-            <div className="mt-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg p-3">
-              {errorMsg}
+            <div className="mt-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg p-3 flex items-start justify-between gap-3">
+              <span>{errorMsg}</span>
+              {isRetryable && lastAttemptRef.current && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => {
+                    const last = lastAttemptRef.current!;
+                    void startSession(last.pin, last.secret);
+                  }}
+                >
+                  Retry
+                </Button>
+              )}
             </div>
           )}
 
