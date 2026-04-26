@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Live Demo](https://img.shields.io/badge/demo-live-success.svg)](https://lean-baby-cam.lovable.app)
+[![Demo Video](https://img.shields.io/badge/video-demo-blue.svg)](#)
 [![TanStack](https://img.shields.io/badge/TanStack_Start-FF4154?style=flat)](https://tanstack.com/start)
 [![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-0074C1?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -15,6 +16,8 @@
 ![Lean Baby Monitor Preview](https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/18e997d9-d2ed-473b-b698-ef9aef8a4dba/id-preview-4ae3b8fc--18aa92c1-79f9-4cf8-a7f8-dc5c78304fff.lovable.app-1777223195125.png)
 
 **[🔴 Try the Live Demo here](https://lean-baby-cam.lovable.app)**
+
+**[📺 Watch the Demo Video here](#)**
 
 ## Table of Contents
 - [About the Experiment](#about-the-experiment)

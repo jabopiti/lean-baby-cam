@@ -34,8 +34,10 @@
 | 2. Context Creation | 90 mins | 130 mins 🔴 | Gemini |
 | 3. Build (Code Gen) | 30 mins | 15 mins 🟢 | Lovable, Gemini |
 | 4. Test & Iterate | 60 mins | 45 mins 🟢 | Lovable, Gemini |
-| 5. Documentation | 40 mins | 45 mins 🟡 | Gemini |
+| 5. Documentation | 40 mins | 45 (+30*) mins 🟡 | Gemini |
 | **Total** | **240 mins** | **249 mins** 🟡 | |
+
+**Note:** Excluded times for retakes and the waiting time for compressing the demo video file and uploading it.
 
 ## Experiment Results & Learnings
 
