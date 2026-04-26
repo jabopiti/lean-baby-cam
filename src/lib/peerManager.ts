@@ -277,11 +277,13 @@ export class ParentSession {
   constructor(private events: SessionEvents) {}
 
   async connect(pin: string, secret: string): Promise<void> {
+    this.events.onState("CONNECTING");
+    const ice = await fetchIceServers();
+    if (ice.warning) this.events.onWarning?.(ice.warning);
     return new Promise((resolve, reject) => {
-      this.events.onState("CONNECTING");
       const peer = new Peer({
         debug: 1,
-        config: { iceServers: ICE_SERVERS },
+        config: { iceServers: ice.list },
       });
       this.peer = peer;
 
@@ -367,6 +369,14 @@ export class ParentSession {
           this.events.onRemoteStream?.(stream);
           this.events.onState("CONNECTED");
           this.startStatsPolling(call);
+          const pcParent = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+          if (pcParent) {
+            pcParent.addEventListener("iceconnectionstatechange", () => {
+              if (pcParent.iceConnectionState === "connected" || pcParent.iceConnectionState === "completed") {
+                logSelectedCandidatePair(pcParent, "parent");
+              }
+            });
+          }
         });
         call.on("close", () => {
           if (this.mediaCall === call) this.mediaCall = null;
