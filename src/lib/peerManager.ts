@@ -54,15 +54,61 @@ async function fetchIceServers(): Promise<{ list: RTCIceServer[]; warning: strin
 /** Dev-only diagnostic: log which kind of ICE candidate pair was selected. */
 function logSelectedCandidatePair(pc: RTCPeerConnection, label: string): void {
   if (!import.meta.env.DEV) return;
-  void pc.getStats().then((stats) => {
+  void readPcStats(pc).then((s) => {
+    if (s.localCandidateType || s.remoteCandidateType) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[ICE ${label}] selected pair: local=${s.localCandidateType} remote=${s.remoteCandidateType}`,
+      );
+    }
+  });
+}
+
+/**
+ * Read a rich stats snapshot from the underlying RTCPeerConnection.
+ * Used by both the diagnostics overlay and the dev-only logger.
+ */
+async function readPcStats(pc: RTCPeerConnection): Promise<StatsSnapshot> {
+  const snap: StatsSnapshot = {
+    bitrateKbps: null,
+    rttMs: null,
+    jitterMs: null,
+    packetsLost: null,
+    packetLossPct: null,
+    localCandidateType: null,
+    remoteCandidateType: null,
+    iceConnectionState: pc.iceConnectionState,
+    updatedAt: Date.now(),
+  };
+  try {
+    const stats = await pc.getStats();
     const candidates = new Map<string, string | undefined>();
+    let inboundBytes = 0;
+    let packetsLost = 0;
+    let packetsReceived = 0;
     stats.forEach((report) => {
       if (report.type === "local-candidate" || report.type === "remote-candidate") {
         candidates.set(report.id, (report as { candidateType?: string }).candidateType);
       }
+      if (report.type === "inbound-rtp" && (report as { kind?: string }).kind === "video") {
+        const r = report as {
+          bytesReceived?: number;
+          jitter?: number;
+          packetsLost?: number;
+          packetsReceived?: number;
+        };
+        inboundBytes += r.bytesReceived ?? 0;
+        if (typeof r.jitter === "number") snap.jitterMs = Math.round(r.jitter * 1000);
+        if (typeof r.packetsLost === "number") packetsLost += r.packetsLost;
+        if (typeof r.packetsReceived === "number") packetsReceived += r.packetsReceived;
+      }
+      if (report.type === "remote-inbound-rtp") {
+        const r = report as { roundTripTime?: number };
+        if (typeof r.roundTripTime === "number") {
+          snap.rttMs = Math.round(r.roundTripTime * 1000);
+        }
+      }
     });
-    let localType: string | undefined;
-    let remoteType: string | undefined;
     stats.forEach((report) => {
       if (
         report.type === "candidate-pair" &&
@@ -70,15 +116,135 @@ function logSelectedCandidatePair(pc: RTCPeerConnection, label: string): void {
         (report as { nominated?: boolean }).nominated
       ) {
         const r = report as { localCandidateId?: string; remoteCandidateId?: string };
-        if (r.localCandidateId) localType = candidates.get(r.localCandidateId);
-        if (r.remoteCandidateId) remoteType = candidates.get(r.remoteCandidateId);
+        if (r.localCandidateId) snap.localCandidateType = candidates.get(r.localCandidateId) ?? null;
+        if (r.remoteCandidateId) snap.remoteCandidateType = candidates.get(r.remoteCandidateId) ?? null;
       }
     });
-    if (localType || remoteType) {
+    snap.packetsLost = packetsLost;
+    const total = packetsLost + packetsReceived;
+    snap.packetLossPct = total > 0 ? Math.round((packetsLost / total) * 1000) / 10 : 0;
+    // bitrate set by callers that have a `prevBytes/prevTime` pair.
+    snap.iceConnectionState = pc.iceConnectionState;
+    // attach raw bytes for delta calc
+    (snap as StatsSnapshot & { _inboundBytes?: number })._inboundBytes = inboundBytes;
+  } catch {
+    // ignore
+  }
+  return snap;
+}
+
+/**
+ * Watch ICE state on a peer connection and trigger restartIce() if the
+ * connection has been disconnected/failed for more than `ICE_FAILURE_RESTART_MS`.
+ * Caps restarts to avoid loops.
+ */
+function attachIceRestartWatcher(
+  pc: RTCPeerConnection,
+  label: string,
+  onWarning?: (msg: string) => void,
+): () => void {
+  let badSince = 0;
+  let restartTimes: number[] = [];
+  let timer: number | null = null;
+
+  const tryRestart = () => {
+    const now = Date.now();
+    restartTimes = restartTimes.filter((t) => now - t < 60_000);
+    if (restartTimes.length >= ICE_RESTART_LIMIT_PER_MIN) {
       // eslint-disable-next-line no-console
-      console.log(`[ICE ${label}] selected pair: local=${localType} remote=${remoteType}`);
+      console.warn(`[ICE ${label}] restart cap reached, skipping`);
+      return;
     }
-  });
+    try {
+      pc.restartIce();
+      restartTimes.push(now);
+      onWarning?.("Reconnecting…");
+      // eslint-disable-next-line no-console
+      console.log(`[ICE ${label}] restartIce() invoked`);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`[ICE ${label}] restartIce failed`, e);
+    }
+  };
+
+  const onChange = () => {
+    const s = pc.iceConnectionState;
+    if (s === "disconnected" || s === "failed") {
+      if (badSince === 0) badSince = Date.now();
+      if (timer === null) {
+        timer = window.setTimeout(() => {
+          timer = null;
+          if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
+            tryRestart();
+          }
+        }, ICE_FAILURE_RESTART_MS);
+      }
+    } else {
+      badSince = 0;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    }
+  };
+
+  pc.addEventListener("iceconnectionstatechange", onChange);
+  return () => {
+    pc.removeEventListener("iceconnectionstatechange", onChange);
+    if (timer !== null) window.clearTimeout(timer);
+  };
+}
+
+/**
+ * Watch a remote MediaStream's tracks for sustained mute (>3s) which often
+ * indicates a stalled subscription even when ICE looks healthy. Invokes
+ * the provided callbacks when the stream goes silent and recovers.
+ */
+function attachTrackWatchdog(
+  stream: MediaStream,
+  onStall: () => void,
+  onResume: () => void,
+): () => void {
+  const stallTimers = new Map<MediaStreamTrack, number>();
+  let stalled = false;
+
+  const setStall = (val: boolean) => {
+    if (val === stalled) return;
+    stalled = val;
+    if (val) onStall();
+    else onResume();
+  };
+
+  const onMute = (t: MediaStreamTrack) => {
+    const timer = window.setTimeout(() => setStall(true), TRACK_MUTED_THRESHOLD_MS);
+    stallTimers.set(t, timer);
+  };
+  const onUnmute = (t: MediaStreamTrack) => {
+    const timer = stallTimers.get(t);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      stallTimers.delete(t);
+    }
+    // Only declare resumed when no track is currently muted.
+    const anyMuted = stream.getTracks().some((tr) => tr.muted);
+    if (!anyMuted) setStall(false);
+  };
+
+  const wire = (t: MediaStreamTrack) => {
+    t.onmute = () => onMute(t);
+    t.onunmute = () => onUnmute(t);
+    if (t.muted) onMute(t);
+  };
+  stream.getTracks().forEach(wire);
+
+  return () => {
+    stream.getTracks().forEach((t) => {
+      t.onmute = null;
+      t.onunmute = null;
+    });
+    stallTimers.forEach((tm) => window.clearTimeout(tm));
+    stallTimers.clear();
+  };
 }
 
 export interface SessionEvents {
