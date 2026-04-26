@@ -378,3 +378,25 @@ The project will leverage a React (Vite) foundation for state management and Pee
 ### Decision
 **Option B: AI-Generated UI**
 For the sake of speed and simplicity, no formal design system will be established. We will rely on the AI's default component styling (e.g., standard Tailwind or internal component libraries used by Lovable/Replit), as they provide a professional baseline that is sufficient for an MVP without the overhead of manual design system management.
+
+# Decision Record: Camera Selection and UI Toggle
+
+## Options Considered
+
+- **Option A: Implement a Camera-Switch Toggle UI**
+  - *Pros:* Gives users full control to manually select between front and rear lenses depending on their physical setup.
+  - *Cons:* Adds UI clutter, introduces media stream management complexity, and directly violates our strict "Ultra-Lean MVP" scope.
+
+- **Option B: Default to Front Camera Only (No Toggle)**
+  - *Pros:* The absolute simplest technical implementation, as this is the default behavior for most mobile browsers.
+  - *Cons:* Poor UX for a baby monitor; parents typically need the screen facing them to check battery or connection status while the camera points away at the crib.
+
+- **Option C: Default to Rear Camera with Graceful Fallback (No Toggle)**
+  - *Pros:* Perfectly supports the standard baby monitor physical setup. Using the `{ ideal: "environment" }` constraint keeps the UI simple by automatically selecting the rear lens on phones, while gracefully falling back to standard front-facing webcams on laptops.
+  - *Cons:* Users cannot force the front camera on a mobile device if they specifically want to use it.
+
+## Decision
+**Option C: Default to Rear Camera with Graceful Fallback (No Toggle)**
+
+## Reasoning
+To maintain our ultra-lean MVP scope, we must avoid the complexity of building and maintaining custom camera-switching UI elements. Relying on the `{ ideal: "environment" }` constraint intelligently solves the hardware problem for us: it automatically defaults to the highly preferred rear camera on mobile devices for optimal crib monitoring, while safely falling back to front-facing webcams on desktop environments, all without requiring a single tap from the user.
