@@ -9,6 +9,7 @@ import {
   LOW_BITRATE_DURATION_MS,
   type ConnectionState,
   type HeartbeatMsg,
+  type StatsSnapshot,
 } from "./types";
 import { startSoftChime, stopSoftChime, startAlarm, stopAlarm } from "./audioAlerts";
 import { timingSafeEqual } from "./pairing";
@@ -16,6 +17,9 @@ import { getIceServers } from "./turnCredentials.functions";
 
 const PEER_PREFIX = "babymon-v1-";
 const AUTH_TIMEOUT_MS = 3000;
+const ICE_FAILURE_RESTART_MS = 3000;
+const TRACK_MUTED_THRESHOLD_MS = 3000;
+const ICE_RESTART_LIMIT_PER_MIN = 3;
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -84,6 +88,7 @@ export interface SessionEvents {
   onError?: (err: string) => void;
   onSessionEnded?: () => void;
   onWarning?: (msg: string) => void;
+  onStats?: (s: StatsSnapshot) => void;
 }
 
 export class BabySession {
