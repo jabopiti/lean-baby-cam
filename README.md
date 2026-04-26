@@ -17,7 +17,7 @@
 
 **[🔴 Try the Live Demo here](https://lean-baby-cam.lovable.app)**
 
-**[📺 Watch the Demo Video here](#)**
+**[📺 Watch the Demo Video here](demo/Demo Video.mp4)**
 
 ## Table of Contents
 - [About the Experiment](#about-the-experiment)
