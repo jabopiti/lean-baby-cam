@@ -51,13 +51,14 @@ async function fetchIceServers(): Promise<{ list: RTCIceServer[]; warning: strin
 function logSelectedCandidatePair(pc: RTCPeerConnection, label: string): void {
   if (!import.meta.env.DEV) return;
   void pc.getStats().then((stats) => {
-    let pair: { localType?: string; remoteType?: string } | null = null;
-    const candidates = new Map<string, { candidateType?: string }>();
+    const candidates = new Map<string, string | undefined>();
     stats.forEach((report) => {
       if (report.type === "local-candidate" || report.type === "remote-candidate") {
-        candidates.set(report.id, { candidateType: (report as { candidateType?: string }).candidateType });
+        candidates.set(report.id, (report as { candidateType?: string }).candidateType);
       }
     });
+    let localType: string | undefined;
+    let remoteType: string | undefined;
     stats.forEach((report) => {
       if (
         report.type === "candidate-pair" &&
@@ -65,15 +66,13 @@ function logSelectedCandidatePair(pc: RTCPeerConnection, label: string): void {
         (report as { nominated?: boolean }).nominated
       ) {
         const r = report as { localCandidateId?: string; remoteCandidateId?: string };
-        pair = {
-          localType: r.localCandidateId ? candidates.get(r.localCandidateId)?.candidateType : undefined,
-          remoteType: r.remoteCandidateId ? candidates.get(r.remoteCandidateId)?.candidateType : undefined,
-        };
+        if (r.localCandidateId) localType = candidates.get(r.localCandidateId);
+        if (r.remoteCandidateId) remoteType = candidates.get(r.remoteCandidateId);
       }
     });
-    if (pair) {
+    if (localType || remoteType) {
       // eslint-disable-next-line no-console
-      console.log(`[ICE ${label}] selected pair: local=${pair.localType} remote=${pair.remoteType}`);
+      console.log(`[ICE ${label}] selected pair: local=${localType} remote=${remoteType}`);
     }
   });
 }
@@ -103,12 +102,14 @@ export class BabySession {
     private events: SessionEvents,
   ) {}
 
-  start(): Promise<void> {
+  async start(): Promise<void> {
+    this.events.onState("PAIRING");
+    const ice = await fetchIceServers();
+    if (ice.warning) this.events.onWarning?.(ice.warning);
     return new Promise((resolve, reject) => {
-      this.events.onState("PAIRING");
       const peer = new Peer(peerIdFromPin(this.pin), {
         debug: 1,
-        config: { iceServers: ICE_SERVERS },
+        config: { iceServers: ice.list },
       });
       this.peer = peer;
 
@@ -165,6 +166,14 @@ export class BabySession {
               call.on("close", () => {
                 if (this.mediaCall === call) this.mediaCall = null;
               });
+              const pcBaby = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+              if (pcBaby) {
+                pcBaby.addEventListener("iceconnectionstatechange", () => {
+                  if (pcBaby.iceConnectionState === "connected" || pcBaby.iceConnectionState === "completed") {
+                    logSelectedCandidatePair(pcBaby, "baby");
+                  }
+                });
+              }
               this.events.onState("CONNECTED");
               this.startHeartbeat();
             } else {
