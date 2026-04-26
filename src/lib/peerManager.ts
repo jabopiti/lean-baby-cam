@@ -206,10 +206,11 @@ export class ParentSession {
   private prevStatsTime = 0;
   private lowSince = 0;
   private isLowBw = false;
+  private authed = false;
 
   constructor(private events: SessionEvents) {}
 
-  async connect(pin: string): Promise<void> {
+  async connect(pin: string, secret: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.events.onState("CONNECTING");
       const peer = new Peer({
@@ -241,6 +242,12 @@ export class ParentSession {
 
         conn.on("open", () => {
           window.clearTimeout(timeout);
+          // Send shared secret immediately to prove we hold the QR/PIN payload.
+          try {
+            conn.send({ type: "auth", secret } satisfies HeartbeatMsg);
+          } catch {
+            // ignore
+          }
           this.lastSeen = Date.now();
           this.startWatchdog();
           resolve();
@@ -248,6 +255,16 @@ export class ParentSession {
 
         conn.on("data", (raw) => {
           const msg = raw as HeartbeatMsg;
+          if (msg.type === "auth-fail") {
+            this.events.onError?.("Pairing rejected. Re-scan the QR code on the Baby Device.");
+            this.end();
+            return;
+          }
+          if (msg.type === "auth-ok") {
+            this.authed = true;
+            this.lastSeen = Date.now();
+            return;
+          }
           if (msg.type === "pong" || msg.type === "ping") {
             this.lastSeen = Date.now();
           } else if (msg.type === "end") {
