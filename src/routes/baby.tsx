@@ -13,6 +13,7 @@ import { AudioMeter } from "@/components/monitor/AudioMeter";
 import { StatusPill } from "@/components/monitor/StatusPill";
 import { SessionTimer } from "@/components/monitor/SessionTimer";
 import { EndSessionDialog } from "@/components/monitor/EndSessionDialog";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/baby")({
   head: () => ({
@@ -71,6 +72,10 @@ function BabyPage() {
           }
         },
         onError: (msg) => setErrorMsg(msg),
+        onWarning: (msg) => {
+          console.warn("[baby]", msg);
+          toast.warning("Relay unavailable — cross-network sessions may not connect.");
+        },
         onSessionEnded: () => {
           // Parent ended — clean up and return home
           sessionRef.current?.end();

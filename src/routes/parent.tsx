@@ -16,6 +16,7 @@ import { Waveform } from "@/components/monitor/Waveform";
 import { StatusPill } from "@/components/monitor/StatusPill";
 import { SessionTimer } from "@/components/monitor/SessionTimer";
 import { EndSessionDialog } from "@/components/monitor/EndSessionDialog";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/parent")({
   head: () => ({
@@ -84,6 +85,10 @@ function ParentPage() {
           }
         },
         onLowBandwidth: (low, at) => setLowBw({ low, at }),
+        onWarning: (msg) => {
+          console.warn("[parent]", msg);
+          toast.warning("Relay unavailable — cross-network sessions may not connect.");
+        },
         onError: (msg) => {
           setErrorMsg(msg);
           setPhase("pair");
