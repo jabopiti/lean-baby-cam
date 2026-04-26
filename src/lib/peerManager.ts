@@ -483,6 +483,9 @@ export class ParentSession {
   private lowSince = 0;
   private isLowBw = false;
   private authed = false;
+  private detachIceWatch: (() => void) | null = null;
+  private detachTrackWatch: (() => void) | null = null;
+  private trackStallActive = false;
 
   constructor(private events: SessionEvents) {}
 
@@ -586,7 +589,21 @@ export class ParentSession {
                 logSelectedCandidatePair(pcParent, "parent");
               }
             });
+            this.detachIceWatch?.();
+            this.detachIceWatch = attachIceRestartWatcher(pcParent, "parent", this.events.onWarning);
           }
+          // Track watchdog — fast-detect stalled streams that ICE doesn't catch.
+          this.detachTrackWatch?.();
+          this.detachTrackWatch = attachTrackWatchdog(
+            stream,
+            () => {
+              this.trackStallActive = true;
+              this.events.onWarning?.("Stream stalled — attempting recovery");
+            },
+            () => {
+              this.trackStallActive = false;
+            },
+          );
         });
         call.on("close", () => {
           if (this.mediaCall === call) this.mediaCall = null;
@@ -652,17 +669,13 @@ export class ParentSession {
       const pc: RTCPeerConnection | undefined = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
       if (!pc) return;
       try {
-        const stats = await pc.getStats();
-        let inboundBytes = 0;
-        stats.forEach((report) => {
-          if (report.type === "inbound-rtp" && (report as { kind?: string }).kind === "video") {
-            inboundBytes += (report as { bytesReceived?: number }).bytesReceived ?? 0;
-          }
-        });
+        const snap = await readPcStats(pc);
+        const inboundBytes = (snap as StatsSnapshot & { _inboundBytes?: number })._inboundBytes ?? 0;
         const now = Date.now();
         if (this.prevStatsTime !== 0) {
           const elapsed = (now - this.prevStatsTime) / 1000;
           const bps = ((inboundBytes - this.prevBytes) * 8) / Math.max(0.1, elapsed);
+          snap.bitrateKbps = Math.round(bps / 1000);
           if (bps < LOW_BITRATE_THRESHOLD) {
             if (this.lowSince === 0) this.lowSince = now;
             if (now - this.lowSince > LOW_BITRATE_DURATION_MS && !this.isLowBw) {
@@ -679,6 +692,7 @@ export class ParentSession {
         }
         this.prevBytes = inboundBytes;
         this.prevStatsTime = now;
+        this.events.onStats?.(snap);
       } catch {
         // ignore
       }
@@ -695,6 +709,10 @@ export class ParentSession {
   end() {
     this.stopWatchdog();
     this.stopStatsPolling();
+    this.detachIceWatch?.();
+    this.detachIceWatch = null;
+    this.detachTrackWatch?.();
+    this.detachTrackWatch = null;
     stopSoftChime();
     stopAlarm();
     try {
