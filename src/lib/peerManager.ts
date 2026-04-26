@@ -265,6 +265,10 @@ export class BabySession {
   private endedExternally = false;
   private authTimers = new WeakMap<DataConnection, number>();
   private authedConn: DataConnection | null = null;
+  private detachIceWatch: (() => void) | null = null;
+  private statsTimer: number | null = null;
+  private prevBytes = 0;
+  private prevStatsTime = 0;
 
   constructor(
     public pin: string,
@@ -344,6 +348,9 @@ export class BabySession {
                     logSelectedCandidatePair(pcBaby, "baby");
                   }
                 });
+                this.detachIceWatch?.();
+                this.detachIceWatch = attachIceRestartWatcher(pcBaby, "baby", this.events.onWarning);
+                this.startStatsLoop(pcBaby);
               }
               this.events.onState("CONNECTED");
               this.startHeartbeat();
@@ -410,6 +417,9 @@ export class BabySession {
 
   end() {
     this.stopHeartbeat();
+    this.stopStatsLoop();
+    this.detachIceWatch?.();
+    this.detachIceWatch = null;
     try {
       this.dataConn?.send({ type: "end" } satisfies HeartbeatMsg);
     } catch {
@@ -419,7 +429,36 @@ export class BabySession {
     this.mediaCall?.close();
     this.peer?.destroy();
     this.localStream.getTracks().forEach((t) => t.stop());
+    // Invalidate session credentials so any straggler can't re-pair (PRD Flow 6).
+    this.pin = "";
+    this.secret = "";
     this.events.onState("ENDED");
+  }
+
+  private startStatsLoop(pc: RTCPeerConnection) {
+    this.stopStatsLoop();
+    this.statsTimer = window.setInterval(async () => {
+      const snap = await readPcStats(pc);
+      const inboundBytes = (snap as StatsSnapshot & { _inboundBytes?: number })._inboundBytes ?? 0;
+      const now = Date.now();
+      if (this.prevStatsTime !== 0) {
+        const elapsed = (now - this.prevStatsTime) / 1000;
+        const bps = ((inboundBytes - this.prevBytes) * 8) / Math.max(0.1, elapsed);
+        snap.bitrateKbps = Math.round(bps / 1000);
+      }
+      this.prevBytes = inboundBytes;
+      this.prevStatsTime = now;
+      this.events.onStats?.(snap);
+    }, 2000);
+  }
+
+  private stopStatsLoop() {
+    if (this.statsTimer !== null) {
+      window.clearInterval(this.statsTimer);
+      this.statsTimer = null;
+    }
+    this.prevBytes = 0;
+    this.prevStatsTime = 0;
   }
 
   get wasEndedRemotely() {
