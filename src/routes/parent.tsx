@@ -131,11 +131,12 @@ function ParentPage() {
   useEffect(() => {
     if (videoRef.current && remoteStream) {
       videoRef.current.srcObject = remoteStream;
-      videoRef.current.muted = muted;
+      // Always muted — audio plays from the dedicated <audio> element below
+      // so it survives tab backgrounding on iOS/Android.
+      videoRef.current.muted = true;
     }
-    // Mirror remote audio to a dedicated <audio> element so iOS/Android
-    // keep the audio link alive when the tab is backgrounded or the screen
-    // is locked. Video element is muted to avoid double playback.
+    // Dedicated <audio> element carries the audio track and respects the
+    // user's mute toggle.
     if (audioRef.current && remoteStream) {
       audioRef.current.srcObject = remoteStream;
       audioRef.current.muted = muted;
