@@ -20,15 +20,27 @@ export function generateSecurePin(): string {
 }
 
 /**
- * Generate a 128-bit shared secret as base64url. Used as a secondary credential
- * after pairing so attackers who guess/enumerate PINs cannot hijack the stream.
+ * Generate a short, human-typeable shared secret (4 chars from a 32-char
+ * unambiguous alphabet — ~20 bits of entropy). Combined with the 6-digit PIN
+ * (~20 bits), total search space is ~40 bits, defeating PIN-only enumeration.
+ * The QR code carries both so the typical user never types this manually.
  */
+const SECRET_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789X"; // 32 chars, no 0/O/1/I/L
 export function generateSharedSecret(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  let str = "";
-  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const len = 4;
+  const buf = new Uint8Array(len);
+  crypto.getRandomValues(buf);
+  // Power-of-two alphabet (32) — masking is unbiased.
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out += SECRET_ALPHABET[buf[i] & 0x1f];
+  }
+  return out;
+}
+
+/** Normalize user-typed secret: uppercase, strip non-alphanumerics, max 4 chars. */
+export function normalizeSecret(raw: string): string {
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
 }
 
 /** Constant-time string comparison to prevent timing attacks. */
