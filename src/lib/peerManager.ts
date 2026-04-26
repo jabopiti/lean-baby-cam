@@ -11,8 +11,10 @@ import {
   type HeartbeatMsg,
 } from "./types";
 import { startSoftChime, stopSoftChime, startAlarm, stopAlarm } from "./audioAlerts";
+import { timingSafeEqual } from "./pairing";
 
 const PEER_PREFIX = "babymon-v1-";
+const AUTH_TIMEOUT_MS = 3000;
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -34,9 +36,12 @@ export class BabySession {
   private mediaCall: MediaConnection | null = null;
   private heartbeatTimer: number | null = null;
   private endedExternally = false;
+  private authTimers = new WeakMap<DataConnection, number>();
+  private authedConn: DataConnection | null = null;
 
   constructor(
     public pin: string,
+    private secret: string,
     private localStream: MediaStream,
     private events: SessionEvents,
   ) {}
@@ -65,44 +70,83 @@ export class BabySession {
       });
 
       peer.on("connection", (conn) => {
-        // Replace any prior connection
-        this.dataConn?.close();
-        this.dataConn = conn;
+        // Hold connection in unauthenticated state until secret is verified.
         conn.on("open", () => {
-          this.events.onState("CONNECTING");
+          // Start auth timeout — drop if no valid auth message arrives.
+          const timer = window.setTimeout(() => {
+            try {
+              conn.send({ type: "auth-fail" } satisfies HeartbeatMsg);
+            } catch {
+              // ignore
+            }
+            conn.close();
+          }, AUTH_TIMEOUT_MS);
+          this.authTimers.set(conn, timer);
         });
         conn.on("data", (raw) => {
           const msg = raw as HeartbeatMsg;
+          // Pre-auth: only "auth" messages are accepted.
+          if (this.authedConn !== conn) {
+            if (msg.type === "auth" && typeof msg.secret === "string" && timingSafeEqual(msg.secret, this.secret)) {
+              const timer = this.authTimers.get(conn);
+              if (timer !== undefined) window.clearTimeout(timer);
+              this.authTimers.delete(conn);
+              // Promote this connection: drop any prior authed conn + media call.
+              this.dataConn?.close();
+              this.mediaCall?.close();
+              this.authedConn = conn;
+              this.dataConn = conn;
+              try {
+                conn.send({ type: "auth-ok" } satisfies HeartbeatMsg);
+              } catch {
+                // ignore
+              }
+              this.events.onState("CONNECTING");
+              // Place the media call now that the peer is authenticated.
+              const call = peer.call(conn.peer, this.localStream);
+              this.mediaCall = call;
+              call.on("close", () => {
+                if (this.mediaCall === call) this.mediaCall = null;
+              });
+              this.events.onState("CONNECTED");
+              this.startHeartbeat();
+            } else {
+              try {
+                conn.send({ type: "auth-fail" } satisfies HeartbeatMsg);
+              } catch {
+                // ignore
+              }
+              conn.close();
+            }
+            return;
+          }
+          // Post-auth message handling.
           if (msg.type === "ping") {
-            conn.send({ type: "pong", t: Date.now() } satisfies HeartbeatMsg);
+            try {
+              conn.send({ type: "pong", t: Date.now() } satisfies HeartbeatMsg);
+            } catch {
+              // ignore
+            }
           } else if (msg.type === "end") {
             this.endedExternally = true;
             this.events.onSessionEnded?.();
           }
         });
         conn.on("close", () => {
+          const timer = this.authTimers.get(conn);
+          if (timer !== undefined) {
+            window.clearTimeout(timer);
+            this.authTimers.delete(conn);
+          }
           if (this.dataConn === conn) this.dataConn = null;
+          if (this.authedConn === conn) this.authedConn = null;
         });
       });
 
       peer.on("call", (call) => {
         // Parent should NOT call us; Baby calls Parent. But accept defensively.
-        call.answer();
-      });
-
-      // When data conn opens, place the media call to that parent peer.
-      peer.on("connection", (conn) => {
-        conn.on("open", () => {
-          // Tear down any previous call
-          this.mediaCall?.close();
-          const call = peer.call(conn.peer, this.localStream);
-          this.mediaCall = call;
-          call.on("close", () => {
-            if (this.mediaCall === call) this.mediaCall = null;
-          });
-          this.events.onState("CONNECTED");
-          this.startHeartbeat();
-        });
+        // Do NOT answer — we only stream to authenticated peers.
+        call.close();
       });
     });
   }
