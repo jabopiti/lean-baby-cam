@@ -26,3 +26,16 @@ export const WARN_THRESHOLD_MS = 10000;
 export const CRITICAL_THRESHOLD_MS = 60000;
 export const LOW_BITRATE_THRESHOLD = 50_000; // bits/sec
 export const LOW_BITRATE_DURATION_MS = 4000;
+
+/** Real-time WebRTC diagnostics snapshot — shown in the hidden overlay. */
+export interface StatsSnapshot {
+  bitrateKbps: number | null;
+  rttMs: number | null;
+  jitterMs: number | null;
+  packetsLost: number | null;
+  packetLossPct: number | null;
+  localCandidateType: string | null;
+  remoteCandidateType: string | null;
+  iceConnectionState: RTCIceConnectionState | null;
+  updatedAt: number;
+}

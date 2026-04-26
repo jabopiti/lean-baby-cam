@@ -6,13 +6,14 @@ import { Button } from "@/components/ui/button";
 import { BabySession } from "@/lib/peerManager";
 import { generateSecurePin, generateSharedSecret, encodePairingPayload } from "@/lib/pairing";
 import { primeAudio } from "@/lib/audioAlerts";
-import type { ConnectionState } from "@/lib/types";
+import type { ConnectionState, StatsSnapshot } from "@/lib/types";
 import { useWakeLock } from "@/hooks/useWakeLock";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { AudioMeter } from "@/components/monitor/AudioMeter";
 import { StatusPill } from "@/components/monitor/StatusPill";
 import { SessionTimer } from "@/components/monitor/SessionTimer";
 import { EndSessionDialog } from "@/components/monitor/EndSessionDialog";
+import { DiagnosticsOverlay } from "@/components/monitor/DiagnosticsOverlay";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/baby")({
@@ -38,6 +39,8 @@ function BabyPage() {
   const [endOpen, setEndOpen] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [dimmed, setDimmed] = useState(false);
+  const [stats, setStats] = useState<StatsSnapshot | null>(null);
+  const [showDiag, setShowDiag] = useState(false);
   const sessionRef = useRef<BabySession | null>(null);
   const dimTimerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -72,6 +75,7 @@ function BabyPage() {
           }
         },
         onError: (msg) => setErrorMsg(msg),
+        onStats: (s) => setStats(s),
         onWarning: (msg) => {
           console.warn("[baby]", msg);
           toast.warning("Relay unavailable — cross-network sessions may not connect.");
@@ -249,7 +253,7 @@ function BabyPage() {
     >
       <header className="px-6 py-4 flex items-center justify-between border-b border-border/50">
         <StatusPill state={state} />
-        <SessionTimer startedAt={startedAt} />
+        <SessionTimer startedAt={startedAt} onLongPress={() => setShowDiag((s) => !s)} />
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-8 gap-6">
@@ -307,6 +311,9 @@ function BabyPage() {
       </div>
 
       <EndSessionDialog open={endOpen} onOpenChange={setEndOpen} onConfirm={confirmEnd} />
+      {showDiag && (
+        <DiagnosticsOverlay stats={stats} state={state} onClose={() => setShowDiag(false)} />
+      )}
     </div>
   );
 }
