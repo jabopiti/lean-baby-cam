@@ -2,7 +2,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Live Demo](https://img.shields.io/badge/demo-live-success.svg)](https://lean-baby-cam.lovable.app)
-
+[![TanStack](https://img.shields.io/badge/TanStack_Start-FF4154?style=flat)](https://tanstack.com/start)
+[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-0074C1?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
+[![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=flat&logo=webrtc&logoColor=white)](https://webrtc.org/)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-F38020?style=flat&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 
 > A zero-install, peer-to-peer baby monitor that runs in any modern browser.
 
@@ -117,7 +123,6 @@ bun run dev
 
 The dev server prints the URL to open (typically `http://localhost:8080`). Open `/baby` on the device that will hold the camera, `/parent` on the viewing device, and follow the pairing flow.
 
-> **HTTPS note:** browsers refuse `getUserMedia` on non-secure origins. `localhost` is treated as secure, but to test on a phone over LAN you'll need either a self-signed HTTPS cert **or** a quick tunnel like `cloudflared tunnel --url http://localhost:8080` to get a real HTTPS URL.
 > **HTTPS note:** Browsers refuse `getUserMedia` on non-secure origins. `localhost` is treated as secure, but to test on a phone over LAN you'll need either a self-signed HTTPS cert **or** a quick tunnel like `cloudflared tunnel --url http://localhost:8080` to get a real HTTPS URL.
 
 ## Environment variables
