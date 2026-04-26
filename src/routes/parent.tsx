@@ -49,6 +49,7 @@ function ParentPage() {
 
   const sessionRef = useRef<ParentSession | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const qrRef = useRef<Html5Qrcode | null>(null);
   const prevStateRef = useRef<ConnectionState>("IDLE");
 
@@ -131,6 +132,13 @@ function ParentPage() {
     if (videoRef.current && remoteStream) {
       videoRef.current.srcObject = remoteStream;
       videoRef.current.muted = muted;
+    }
+    // Mirror remote audio to a dedicated <audio> element so iOS/Android
+    // keep the audio link alive when the tab is backgrounded or the screen
+    // is locked. Video element is muted to avoid double playback.
+    if (audioRef.current && remoteStream) {
+      audioRef.current.srcObject = remoteStream;
+      audioRef.current.muted = muted;
     }
   }, [remoteStream, muted, lowBw.low]);
 
@@ -384,6 +392,8 @@ function ParentPage() {
       </div>
 
       <EndSessionDialog open={endOpen} onOpenChange={setEndOpen} onConfirm={confirmEnd} />
+      {/* Hidden persistent audio element — keeps audio alive when tab backgrounds. */}
+      <audio ref={audioRef} autoPlay playsInline className="hidden" />
     </div>
   );
 }
