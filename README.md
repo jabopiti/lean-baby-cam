@@ -29,9 +29,9 @@
 - [Available Scripts](#available-scripts)
 - [Testing & Deployment](#testing)
 
+## About the Experiment
 This app is an experiment to create a real baby monitor app across a baby and parent device. Created with an AI-first product development approach.
 
-## About the Experiment
 **Hypothesis:** Can I build a real, secure, and functioning peer-to-peer baby monitor application from scratch within a strict **4-hour net working time** limit using an AI-first approach?
 
 **Summary of Results:**
