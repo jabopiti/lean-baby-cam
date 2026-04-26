@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import appCss from "../styles.css?url";
 import { registerServiceWorker } from "../lib/registerSW";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -74,5 +75,10 @@ function RootComponent() {
   useEffect(() => {
     registerServiceWorker();
   }, []);
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <Toaster richColors position="top-center" />
+    </>
+  );
 }

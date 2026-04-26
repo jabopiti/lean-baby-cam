@@ -12,15 +12,70 @@ import {
 } from "./types";
 import { startSoftChime, stopSoftChime, startAlarm, stopAlarm } from "./audioAlerts";
 import { timingSafeEqual } from "./pairing";
+import { getIceServers } from "./turnCredentials.functions";
 
 const PEER_PREFIX = "babymon-v1-";
 const AUTH_TIMEOUT_MS = 3000;
-const ICE_SERVERS: RTCIceServer[] = [
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
 export const peerIdFromPin = (pin: string) => PEER_PREFIX + pin;
+
+/**
+ * Fetch fresh ICE servers (Cloudflare TURN + STUN). Returns null on hard
+ * failure so callers can decide to surface a warning. Always returns *some*
+ * usable list — at minimum public STUN — so same-network sessions still work.
+ */
+async function fetchIceServers(): Promise<{ list: RTCIceServer[]; warning: string | null }> {
+  try {
+    const result = await getIceServers();
+    if (result.source === "fallback") {
+      return {
+        list: result.iceServers,
+        warning: result.error ?? "Relay unavailable — cross-network may not work.",
+      };
+    }
+    return { list: result.iceServers, warning: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      list: FALLBACK_ICE_SERVERS,
+      warning: `Relay fetch failed: ${msg}`,
+    };
+  }
+}
+
+/** Dev-only diagnostic: log which kind of ICE candidate pair was selected. */
+function logSelectedCandidatePair(pc: RTCPeerConnection, label: string): void {
+  if (!import.meta.env.DEV) return;
+  void pc.getStats().then((stats) => {
+    const candidates = new Map<string, string | undefined>();
+    stats.forEach((report) => {
+      if (report.type === "local-candidate" || report.type === "remote-candidate") {
+        candidates.set(report.id, (report as { candidateType?: string }).candidateType);
+      }
+    });
+    let localType: string | undefined;
+    let remoteType: string | undefined;
+    stats.forEach((report) => {
+      if (
+        report.type === "candidate-pair" &&
+        (report as { state?: string }).state === "succeeded" &&
+        (report as { nominated?: boolean }).nominated
+      ) {
+        const r = report as { localCandidateId?: string; remoteCandidateId?: string };
+        if (r.localCandidateId) localType = candidates.get(r.localCandidateId);
+        if (r.remoteCandidateId) remoteType = candidates.get(r.remoteCandidateId);
+      }
+    });
+    if (localType || remoteType) {
+      // eslint-disable-next-line no-console
+      console.log(`[ICE ${label}] selected pair: local=${localType} remote=${remoteType}`);
+    }
+  });
+}
 
 export interface SessionEvents {
   onState: (s: ConnectionState) => void;
@@ -28,6 +83,7 @@ export interface SessionEvents {
   onLowBandwidth?: (low: boolean, droppedAt: Date | null) => void;
   onError?: (err: string) => void;
   onSessionEnded?: () => void;
+  onWarning?: (msg: string) => void;
 }
 
 export class BabySession {
@@ -46,12 +102,14 @@ export class BabySession {
     private events: SessionEvents,
   ) {}
 
-  start(): Promise<void> {
+  async start(): Promise<void> {
+    this.events.onState("PAIRING");
+    const ice = await fetchIceServers();
+    if (ice.warning) this.events.onWarning?.(ice.warning);
     return new Promise((resolve, reject) => {
-      this.events.onState("PAIRING");
       const peer = new Peer(peerIdFromPin(this.pin), {
         debug: 1,
-        config: { iceServers: ICE_SERVERS },
+        config: { iceServers: ice.list },
       });
       this.peer = peer;
 
@@ -108,6 +166,14 @@ export class BabySession {
               call.on("close", () => {
                 if (this.mediaCall === call) this.mediaCall = null;
               });
+              const pcBaby = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+              if (pcBaby) {
+                pcBaby.addEventListener("iceconnectionstatechange", () => {
+                  if (pcBaby.iceConnectionState === "connected" || pcBaby.iceConnectionState === "completed") {
+                    logSelectedCandidatePair(pcBaby, "baby");
+                  }
+                });
+              }
               this.events.onState("CONNECTED");
               this.startHeartbeat();
             } else {
@@ -211,11 +277,13 @@ export class ParentSession {
   constructor(private events: SessionEvents) {}
 
   async connect(pin: string, secret: string): Promise<void> {
+    this.events.onState("CONNECTING");
+    const ice = await fetchIceServers();
+    if (ice.warning) this.events.onWarning?.(ice.warning);
     return new Promise((resolve, reject) => {
-      this.events.onState("CONNECTING");
       const peer = new Peer({
         debug: 1,
-        config: { iceServers: ICE_SERVERS },
+        config: { iceServers: ice.list },
       });
       this.peer = peer;
 
@@ -301,6 +369,14 @@ export class ParentSession {
           this.events.onRemoteStream?.(stream);
           this.events.onState("CONNECTED");
           this.startStatsPolling(call);
+          const pcParent = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+          if (pcParent) {
+            pcParent.addEventListener("iceconnectionstatechange", () => {
+              if (pcParent.iceConnectionState === "connected" || pcParent.iceConnectionState === "completed") {
+                logSelectedCandidatePair(pcParent, "parent");
+              }
+            });
+          }
         });
         call.on("close", () => {
           if (this.mediaCall === call) this.mediaCall = null;
