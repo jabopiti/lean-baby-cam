@@ -4,6 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { ArrowLeft, Camera, RefreshCw, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BabySession } from "@/lib/peerManager";
+import { generateSecurePin, generateSharedSecret, encodePairingPayload } from "@/lib/pairing";
 import { primeAudio } from "@/lib/audioAlerts";
 import type { ConnectionState } from "@/lib/types";
 import { useWakeLock } from "@/hooks/useWakeLock";
@@ -25,12 +26,11 @@ export const Route = createFileRoute("/baby")({
 
 type Phase = "permission" | "denied" | "pairing" | "monitoring";
 
-const generatePin = () => Math.floor(100000 + Math.random() * 900000).toString();
-
 function BabyPage() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>("permission");
   const [pin, setPin] = useState<string>("");
+  const [secret, setSecret] = useState<string>("");
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [state, setState] = useState<ConnectionState>("IDLE");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -54,11 +54,13 @@ function BabyPage() {
         audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
       });
       setStream(s);
-      const newPin = generatePin();
+      const newPin = generateSecurePin();
+      const newSecret = generateSharedSecret();
       setPin(newPin);
+      setSecret(newSecret);
       setPhase("pairing");
 
-      const session = new BabySession(newPin, s, {
+      const session = new BabySession(newPin, newSecret, s, {
         onState: (st) => {
           setState(st);
           if (st === "CONNECTED" && startedAtRef.current === null) {
@@ -212,7 +214,7 @@ function BabyPage() {
           )}
           <div className="mt-6 bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-soft)]">
             <div className="bg-white p-4 rounded-xl inline-block">
-              <QRCodeSVG value={pin} size={200} level="M" />
+              <QRCodeSVG value={encodePairingPayload(pin, secret)} size={200} level="M" />
             </div>
             <div className="mt-5">
               <div className="text-xs uppercase tracking-widest text-muted-foreground">PIN</div>
