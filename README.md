@@ -2,11 +2,16 @@
 
 > A zero-install, peer-to-peer baby monitor that runs in any modern browser.
 
-**Live demo:** [lean-baby-cam.lovable.app](https://lean-baby-cam.lovable.app)
+This app is an experiment to create a real baby monitor app across a baby and parent device. Created with an AI-first product development approach.
 
-## Why
+## About the Experiment
+**Hypothesis:** Can I build a real, secure, and functioning peer-to-peer baby monitor application from scratch within a strict **4-hour net working time** limit using an AI-first approach?
 
-Most baby monitor apps require accounts, bundle telemetry, and route audio/video through someone else's cloud. Lean Baby Cam takes the opposite approach: open the app on two devices, pair them with a 6-digit PIN, and the audio + video stream **directly between the two browsers** over WebRTC. Same-network sessions never leave your Wi-Fi. Cross-network sessions only fall back to a relay when NAT traversal genuinely fails. There are no accounts, no recordings, no analytics. An old phone you'd otherwise throw out becomes a perfectly good baby monitor.
+**Summary of Results:**
+By front-loading context creation (PRD, Technical Blueprint) to establish strict guardrails, the AI toolchain (Gemini + Lovable) proved highly effective for scaffolding a zero-friction WebRTC baby monitor. While AI significantly accelerated development, manual intervention was still required to overcome real-world network constraints (e.g., symmetric NATs blocking STUN on cellular networks) and to enforce security measures that the AI initially overlooked.
+
+-> **Read the full experiment details, approach, and learnings in [EXPERIMENT.md](EXPERIMENT.md)**.
+-> **See the original constraints in [PRODUCT-CHALLENGE.md](.ai/PRODUCT-CHALLENGE.md)**.
 
 ## Features
 
