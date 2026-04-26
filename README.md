@@ -2,9 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Live Demo](https://img.shields.io/badge/demo-live-success.svg)](https://lean-baby-cam.lovable.app)
-[![GitHub stars](https://img.shields.io/github/stars/jbpti/lean-baby-cam.svg?style=flat)](https://github.com/jbpti/lean-baby-cam/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/jbpti/lean-baby-cam.svg?style=flat)](https://github.com/jbpti/lean-baby-cam/issues)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/jbpti/lean-baby-cam.svg?style=flat)](https://github.com/jbpti/lean-baby-cam/pulls)
+
 
 > A zero-install, peer-to-peer baby monitor that runs in any modern browser.
 
