@@ -54,7 +54,12 @@ function BabyPage() {
     primeAudio();
     try {
       const s = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 854 }, height: { ideal: 480 }, frameRate: { ideal: 15 } },
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 854 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 15 },
+        },
         audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
       });
       setStream(s);
