@@ -34,10 +34,14 @@ export const Route = createRootRoute({
       { title: "Lean Baby Monitor — Private P2P Baby Monitor" },
       { name: "description", content: "A zero-account, peer-to-peer baby monitor in your browser. No downloads, no signups, just pair and watch." },
       { name: "theme-color", content: "#1a1d3a" },
-      { property: "og:title", content: "Lean Baby Monitor" },
-      { property: "og:description", content: "Private peer-to-peer baby monitor — no accounts, no recordings." },
+      { property: "og:title", content: "Lean Baby Monitor — Private P2P Baby Monitor" },
+      { property: "og:description", content: "A zero-account, peer-to-peer baby monitor in your browser. No downloads, no signups, just pair and watch." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "Lean Baby Monitor — Private P2P Baby Monitor" },
+      { name: "twitter:description", content: "A zero-account, peer-to-peer baby monitor in your browser. No downloads, no signups, just pair and watch." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/18e997d9-d2ed-473b-b698-ef9aef8a4dba/id-preview-4ae3b8fc--18aa92c1-79f9-4cf8-a7f8-dc5c78304fff.lovable.app-1777223195125.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/18e997d9-d2ed-473b-b698-ef9aef8a4dba/id-preview-4ae3b8fc--18aa92c1-79f9-4cf8-a7f8-dc5c78304fff.lovable.app-1777223195125.png" },
     ],
     links: [
       {
