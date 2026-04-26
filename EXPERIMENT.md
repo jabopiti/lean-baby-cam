@@ -10,6 +10,7 @@
 ## Approach
 **Reasoning:** Clear, lean specifications are key for AI-first development. Front-loading the architectural and product thinking (Research, PRD, Tech Blueprint) prevents tedious iterations later. The trick is to establish specific but lean guardrails, giving the AI clear boundaries while leaving enough room for it to act. This prevents the AI from "hallucinating" (i.e., adding unwanted features that bloat the product, increasing complexity, or suggesting architecture that isn't feasible within the strict 4-hour timebox) and keeps it focused strictly on a "Zero-Friction MVP."
 
+0. Setup (Repo, Accounts, ...)
 1. Run fast discovery
  - Review product challenge brief
  - Research market solutions for similar products
@@ -28,19 +29,40 @@
 ## Timebox Overview 
 | Phase | Planned Time | Actual Time | AI Tools Used |
 | :--- | :--- | :--- | :--- |
-| 1. Fast Discovery | 10 mins | 6 mins | Perplexity, Gemini |
-| 2. Context Creation | 90 mins | 110 mins | Gemini |
-| 3. Build (Code Gen) | 90 mins | 110 mins | Lovable, Gemini |
-| 4. Test & Iterate | 90 mins | [TODO] mins | Lovable, Gemini |
-| 5. Documentation | [TODO] mins | [TODO] mins | - |
+| 0. Setup | 10 mins | 8 mins 🟢 | - |
+| 1. Fast Discovery | 10 mins | 6 mins 🟢 | Perplexity, Gemini |
+| 2. Context Creation | 90 mins | 130 mins 🔴 | Gemini |
+| 3. Build (Code Gen) | 30 mins | 15 mins 🟢 | Lovable, Gemini |
+| 4. Test & Iterate | 60 mins | 45 mins 🟢 | Lovable, Gemini |
+| 5. Documentation | 40 mins | 45 mins 🟡 | Gemini |
+| **Total** | **240 mins** | **249 mins** 🟡 | |
 
 ## Experiment Results & Learnings
 
 ### 1. What did you build, and why?
-TODO
+
+The constraint was simple: ship something that actually works, on a tight time box, with zero tolerance for scope creep. Every decision defaulted to the least complex option that still got the job done — reliability, privacy, and basic usability were non-negotiable, everything else was out.
+
+- A **PWA** — one codebase, any device, no app store, no downloads
+- **WebRTC peer-to-peer streaming** — audio and video go directly between devices, never through a server
+- **QR code + PIN fallback pairing** — fast by default, manual when camera fails
+- **Progressive connection alerts** (silent → chime → alarm) — absorbs brief drops without waking anyone up, escalates when it actually matters
+- **Bandwidth-adaptive streaming** — drops video and holds audio when the signal gets thin
+- **Auto-recovery and auto-reset** — the app heals itself; no manual intervention needed
+
+*See DECISIONS.md for the full option analysis behind each choice.*
+
 
 ### 2. What did you intentionally not build, and why?
-TODO
+
+- **User accounts** — login adds friction before the user has seen a single thing work
+- **Media recording** — any server-side storage breaks the privacy model at the foundation
+- **Persistent pairing and multi-device management** — both require state complexity that has no business being in a v1
+- **Native apps** — no Mac, no prior experience; not a viable path
+- **A formal design system** — the overhead wasn't worth it; good-enough defaults ship faster
+- **Commercial or marketing features** — explicitly out of scope so engineering focus stayed on the stream
+
+*See DECISIONS.md → "Defining MVP Scope & Feature Cutoff" for the full rationale.*
 
 ### 3. Where did AI help you concretely?
 * **Perplexity:** Accelerated market research, instantly identifying the biggest user pain points (reliability and privacy) across top competitor apps.
