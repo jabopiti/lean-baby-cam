@@ -14,6 +14,9 @@ export type ConnectionState =
 export type HeartbeatMsg =
   | { type: "ping"; t: number }
   | { type: "pong"; t: number }
+  | { type: "auth"; secret: string }
+  | { type: "auth-ok" }
+  | { type: "auth-fail" }
   | { type: "end" };
 
 export const HEARTBEAT_INTERVAL_MS = 1000;
